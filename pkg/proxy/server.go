@@ -90,6 +90,11 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Route by method
 	switch req.Method {
+	case "initialize":
+		s.handleInitialize(w, req)
+	case "notifications/initialized":
+		// JSON-RPC notification — no response required.
+		return
 	case "tools/list":
 		s.handleToolsList(w, req, claims)
 	case "tools/call":
@@ -97,6 +102,19 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeRPCError(w, req.ID, -32601, fmt.Sprintf("method not found: %q", req.Method))
 	}
+}
+
+func (s *Server) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) {
+	writeRPCResult(w, req.ID, map[string]any{
+		"protocolVersion": "2025-11-25",
+		"capabilities": map[string]any{
+			"tools": map[string]any{},
+		},
+		"serverInfo": map[string]any{
+			"name":    "agentid",
+			"version": "0.1.0",
+		},
+	})
 }
 
 func (s *Server) handleToolsList(w http.ResponseWriter, req jsonRPCRequest, _ *identity.TaskClaims) {
