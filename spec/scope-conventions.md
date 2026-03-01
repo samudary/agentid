@@ -1,8 +1,8 @@
 # Scope Conventions Specification
 
-**Version**: 0.1.0
-**Date**: 2026-02-27
-**Status**: Draft
+- **Version**: 0.1.0
+- **Date**: 2026-02-27
+- **Status**: Draft
 
 ## Overview
 

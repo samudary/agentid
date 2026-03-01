@@ -1,5 +1,7 @@
 # AgentID
 
+### Project Status: Experimental, Draft
+
 Experimental task-scoped identity and auth for autonomous AI agents.
 
 ## The Problem
