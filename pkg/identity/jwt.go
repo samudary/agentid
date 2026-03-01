@@ -4,7 +4,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"os"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/samudary/agentid/pkg/store"
@@ -34,6 +37,54 @@ func GenerateKeyPair() (*KeyPair, error) {
 		return nil, fmt.Errorf("generate ES256 key: %w", err)
 	}
 	return &KeyPair{Private: key, Public: &key.PublicKey}, nil
+}
+
+// SaveKeyPair writes an ES256 private key to a PEM file.
+// The file is created with 0600 permissions (owner read/write only).
+func SaveKeyPair(kp *KeyPair, path string) error {
+	der, err := x509.MarshalECPrivateKey(kp.Private)
+	if err != nil {
+		return fmt.Errorf("marshal private key: %w", err)
+	}
+	block := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
+	return os.WriteFile(path, pem.EncodeToMemory(block), 0600)
+}
+
+// LoadKeyPair reads an ES256 private key from a PEM file and derives the
+// public key from it.
+func LoadKeyPair(path string) (*KeyPair, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read key file: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %s", path)
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse EC private key: %w", err)
+	}
+	if key.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("expected P-256 key, got %s", key.Curve.Params().Name)
+	}
+	return &KeyPair{Private: key, Public: &key.PublicKey}, nil
+}
+
+// LoadOrGenerateKeyPair loads a key pair from path if the file exists,
+// otherwise generates a new key pair and saves it to path.
+func LoadOrGenerateKeyPair(path string) (*KeyPair, error) {
+	if _, err := os.Stat(path); err == nil {
+		return LoadKeyPair(path)
+	}
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		return nil, err
+	}
+	if err := SaveKeyPair(kp, path); err != nil {
+		return nil, fmt.Errorf("save generated key: %w", err)
+	}
+	return kp, nil
 }
 
 // SignToken signs the given claims with the ES256 private key and returns

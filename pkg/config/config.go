@@ -87,6 +87,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Identity.MaxDelegationDepth == 0 {
 		cfg.Identity.MaxDelegationDepth = 5
 	}
+	if cfg.Identity.KeyFile == "" {
+		cfg.Identity.KeyFile = "agentid.pem"
+	}
 	if cfg.Audit.DBPath == "" {
 		cfg.Audit.DBPath = "agentid.db"
 	}

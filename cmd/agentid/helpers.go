@@ -67,19 +67,23 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
-// initService initializes the SQLite store, generates a key pair, and creates
-// an identity service from the given config. Returns a cleanup function that
-// closes the store.
+// initService initializes the SQLite store, loads (or generates) a key pair,
+// and creates an identity service from the given config.
 func initService(cfg *config.Config) (*identity.Service, *sqlite.SQLiteStore, error) {
 	st, err := sqlite.New(cfg.Audit.DBPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open store: %w", err)
 	}
 
-	kp, err := identity.GenerateKeyPair()
+	var kp *identity.KeyPair
+	if cfg.Identity.KeyFile != "" {
+		kp, err = identity.LoadOrGenerateKeyPair(cfg.Identity.KeyFile)
+	} else {
+		kp, err = identity.GenerateKeyPair()
+	}
 	if err != nil {
 		st.Close()
-		return nil, nil, fmt.Errorf("generate key pair: %w", err)
+		return nil, nil, fmt.Errorf("key pair: %w", err)
 	}
 
 	maxTTL, err := cfg.MaxTTLDuration()

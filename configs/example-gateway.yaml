@@ -5,7 +5,7 @@ server:
 identity:
   max_ttl: "60m"
   max_delegation_depth: 5
-  key_file: ""
+  key_file: "agentid.pem"
 
 audit:
   db_path: "agentid.db"
