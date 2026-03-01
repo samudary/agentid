@@ -139,7 +139,7 @@ Validators must check claims in the following order. If any step fails, validati
 
 3. **Issuer check** — Verify that the `iss` claim is `"agentid"`. Reject if the issuer does not match.
 
-4. **Revocation check** — Look up the task ID (from the `jti` claim) in the store's revocation index. Reject if the task has been revoked.
+4. **Revocation check** — Look up the task ID (from the `sub` claim) in the store's revocation index. Reject if the task has been revoked.
 
 5. **Scope check** — Verify that the task's `scopes` claim includes a scope that permits the requested operation. This check happens per-request at proxy time and is not part of JWT structural validation itself. It is documented here for completeness, as it is the final gate before a proxied request proceeds.
 

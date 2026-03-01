@@ -84,6 +84,35 @@ type BundleConfig struct {
 	Includes    []string `json:"includes" yaml:"includes"`
 }
 
+// ValidateBundleConfigs checks all bundle definitions for errors at startup.
+// It rejects empty bundles, validates scope format, detects unknown include
+// references, and detects circular includes.
+func ValidateBundleConfigs(bundles map[string]BundleConfig) error {
+	for name, b := range bundles {
+		if len(b.Scopes) == 0 && len(b.Includes) == 0 {
+			return fmt.Errorf("bundle %q must have at least one of scopes or includes", name)
+		}
+		for _, s := range b.Scopes {
+			if _, err := ParseScope(s); err != nil {
+				return fmt.Errorf("bundle %q: %w", name, err)
+			}
+		}
+		for _, inc := range b.Includes {
+			if _, ok := bundles[inc]; !ok {
+				return fmt.Errorf("bundle %q includes unknown bundle %q", name, inc)
+			}
+		}
+	}
+
+	// Detect circular includes by trial-expanding every bundle
+	for name := range bundles {
+		if _, err := ResolveBundles([]string{name}, bundles); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ResolveBundles expands bundle names into granular scopes.
 // Detects circular includes. Returns a deduplicated, sorted scope list.
 func ResolveBundles(names []string, bundles map[string]BundleConfig) ([]string, error) {

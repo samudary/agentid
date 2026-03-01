@@ -1,6 +1,6 @@
 # AgentID
 
-Task-scoped identity and auth for autonomous AI agents.
+Experimental task-scoped identity and auth for autonomous AI agents.
 
 ## The Problem
 

@@ -31,17 +31,18 @@ type DelegationLink struct {
 
 // TaskRecord is the persistent representation of a task identity.
 type TaskRecord struct {
-	ID              string
-	ParentID        string
-	Purpose         string
-	Scopes          []string
-	Status          TaskStatus
-	DelegationChain []DelegationLink
-	Metadata        map[string]string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
-	CompletedAt     *time.Time
-	StatusReason    string
+	ID                 string
+	ParentID           string
+	Purpose            string
+	Scopes             []string
+	Status             TaskStatus
+	DelegationChain    []DelegationLink
+	Metadata           map[string]string
+	MaxDelegationDepth int
+	CreatedAt          time.Time
+	ExpiresAt          time.Time
+	CompletedAt        *time.Time
+	StatusReason       string
 }
 
 // AuditEvent is an immutable, append-only record of something that happened

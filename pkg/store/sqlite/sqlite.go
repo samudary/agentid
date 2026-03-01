@@ -81,9 +81,9 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *store.TaskRecord) er
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, parent_id, purpose, scopes, status,
-			delegation_chain, metadata, created_at, expires_at,
-			completed_at, status_reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			delegation_chain, metadata, max_delegation_depth,
+			created_at, expires_at, completed_at, status_reason
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID,
 		task.ParentID,
 		task.Purpose,
@@ -91,6 +91,7 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *store.TaskRecord) er
 		string(task.Status),
 		string(chainJSON),
 		string(metaJSON),
+		task.MaxDelegationDepth,
 		task.CreatedAt.UTC().Format(time.RFC3339),
 		task.ExpiresAt.UTC().Format(time.RFC3339),
 		completedAt,
@@ -107,8 +108,8 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *store.TaskRecord) er
 func (s *SQLiteStore) GetTask(ctx context.Context, taskID string) (*store.TaskRecord, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, parent_id, purpose, scopes, status,
-		       delegation_chain, metadata, created_at, expires_at,
-		       completed_at, status_reason
+		       delegation_chain, metadata, max_delegation_depth,
+		       created_at, expires_at, completed_at, status_reason
 		FROM tasks WHERE id = ?`, taskID)
 
 	var (
@@ -130,6 +131,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, taskID string) (*store.TaskRe
 		&statusStr,
 		&chainJSON,
 		&metaJSON,
+		&task.MaxDelegationDepth,
 		&createdAtStr,
 		&expiresAtStr,
 		&completedAtDB,

@@ -74,32 +74,32 @@ func (svc *Service) CreateTask(ctx context.Context, req TaskRequest) (*TaskCrede
 		}
 	}
 
-	// 2. Determine parent context and validate scope narrowing
+	// 2. Determine parent context, validate scope narrowing, and derive delegation depth
+	var parentTask *store.TaskRecord
 	var parentChain []store.DelegationLink
 	var maxDepth int
 
 	if strings.HasPrefix(req.ParentID, "human:") {
-		// Root task has no scope narrowing check, human has implicit full authority
 		maxDepth = svc.config.MaxDelegationDepth
 	} else if strings.HasPrefix(req.ParentID, "task:") {
-		// Sub-task: fetch parent, validate scopes narrow
-		parentTask, err := svc.store.GetTask(ctx, req.ParentID)
+		var err error
+		parentTask, err = svc.store.GetTask(ctx, req.ParentID)
 		if err != nil {
 			return nil, fmt.Errorf("get parent task: %w", err)
 		}
 		if parentTask.Status != store.TaskStatusActive {
 			return nil, fmt.Errorf("parent task %q is not active (status: %s)", req.ParentID, parentTask.Status)
 		}
+		if parentTask.MaxDelegationDepth <= 0 {
+			return nil, fmt.Errorf("parent task %q has exhausted its delegation depth", req.ParentID)
+		}
 
-		// Validate scope narrowing
 		if err := ValidateScopes(allScopes, parentTask.Scopes); err != nil {
 			return nil, fmt.Errorf("scope narrowing violation: %w", err)
 		}
 
 		parentChain = parentTask.DelegationChain
-
-		// Use the configured max delegation depth
-		maxDepth = svc.config.MaxDelegationDepth
+		maxDepth = parentTask.MaxDelegationDepth - 1
 	} else {
 		return nil, fmt.Errorf("invalid parent ID format: %q (must start with 'human:' or 'task:')", req.ParentID)
 	}
@@ -112,17 +112,13 @@ func (svc *Service) CreateTask(ctx context.Context, req TaskRequest) (*TaskCrede
 	if ttl > svc.config.MaxTTL {
 		ttl = svc.config.MaxTTL
 	}
-	// For sub-tasks, TTL cannot exceed parent's remaining lifetime
-	if strings.HasPrefix(req.ParentID, "task:") {
-		parentTask, _ := svc.store.GetTask(ctx, req.ParentID)
-		if parentTask != nil {
-			remaining := time.Until(parentTask.ExpiresAt)
-			if remaining <= 0 {
-				return nil, fmt.Errorf("parent task has expired")
-			}
-			if ttl > remaining {
-				ttl = remaining
-			}
+	if parentTask != nil {
+		remaining := time.Until(parentTask.ExpiresAt)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("parent task has expired")
+		}
+		if ttl > remaining {
+			ttl = remaining
 		}
 	}
 
@@ -135,14 +131,11 @@ func (svc *Service) CreateTask(ctx context.Context, req TaskRequest) (*TaskCrede
 
 	// 5. Build delegation chain
 	scopeNarrowed := false
-	if strings.HasPrefix(req.ParentID, "task:") {
-		parentTask, _ := svc.store.GetTask(ctx, req.ParentID)
-		if parentTask != nil {
-			scopeNarrowed = !scopeSetsEqual(allScopes, parentTask.Scopes)
-		}
+	if parentTask != nil {
+		scopeNarrowed = !scopeSetsEqual(allScopes, parentTask.Scopes)
 	}
 
-	chain, err := BuildDelegationChain(taskID, req.ParentID, parentChain, scopeNarrowed, maxDepth)
+	chain, err := BuildDelegationChain(taskID, req.ParentID, parentChain, scopeNarrowed)
 	if err != nil {
 		return nil, fmt.Errorf("build delegation chain: %w", err)
 	}
@@ -163,7 +156,7 @@ func (svc *Service) CreateTask(ctx context.Context, req TaskRequest) (*TaskCrede
 		Scopes:             allScopes,
 		DelegationChain:    chain,
 		PolicyContext:      req.Metadata,
-		MaxDelegationDepth: maxDepth - chainTaskDepth(chain) + 1, // remaining depth for children
+		MaxDelegationDepth: maxDepth,
 		MaxTTLSeconds:      int(ttl.Seconds()),
 	}
 
@@ -174,15 +167,16 @@ func (svc *Service) CreateTask(ctx context.Context, req TaskRequest) (*TaskCrede
 
 	// 7. Persist task record
 	record := &store.TaskRecord{
-		ID:              taskID,
-		ParentID:        req.ParentID,
-		Purpose:         req.Purpose,
-		Scopes:          allScopes,
-		Status:          store.TaskStatusActive,
-		DelegationChain: chain,
-		Metadata:        req.Metadata,
-		CreatedAt:       now,
-		ExpiresAt:       expiresAt,
+		ID:                 taskID,
+		ParentID:           req.ParentID,
+		Purpose:            req.Purpose,
+		Scopes:             allScopes,
+		Status:             store.TaskStatusActive,
+		DelegationChain:    chain,
+		Metadata:           req.Metadata,
+		MaxDelegationDepth: maxDepth,
+		CreatedAt:          now,
+		ExpiresAt:          expiresAt,
 	}
 	if record.Metadata == nil {
 		record.Metadata = make(map[string]string)
@@ -267,15 +261,4 @@ func scopeSetsEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// helper: count task links in a chain
-func chainTaskDepth(chain []store.DelegationLink) int {
-	count := 0
-	for _, link := range chain {
-		if link.Type == "task" {
-			count++
-		}
-	}
-	return count
 }

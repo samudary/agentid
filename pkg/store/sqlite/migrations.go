@@ -8,9 +8,10 @@ CREATE TABLE IF NOT EXISTS tasks (
 	purpose         TEXT NOT NULL DEFAULT '',
 	scopes          TEXT NOT NULL DEFAULT '[]',
 	status          TEXT NOT NULL DEFAULT 'active',
-	delegation_chain TEXT NOT NULL DEFAULT '[]',
-	metadata        TEXT NOT NULL DEFAULT '{}',
-	created_at      TEXT NOT NULL,
+	delegation_chain    TEXT NOT NULL DEFAULT '[]',
+	metadata            TEXT NOT NULL DEFAULT '{}',
+	max_delegation_depth INTEGER NOT NULL DEFAULT 0,
+	created_at          TEXT NOT NULL,
 	expires_at      TEXT NOT NULL,
 	completed_at    TEXT,
 	status_reason   TEXT NOT NULL DEFAULT ''

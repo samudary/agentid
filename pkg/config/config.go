@@ -94,6 +94,13 @@ func Load(path string) (*Config, error) {
 		cfg.Audit.DBPath = "agentid.db"
 	}
 
+	// Validate scope bundles at startup
+	if len(cfg.ScopeBundles) > 0 {
+		if err := identity.ValidateBundleConfigs(cfg.ScopeBundles); err != nil {
+			return nil, fmt.Errorf("invalid scope_bundles config: %w", err)
+		}
+	}
+
 	return &cfg, nil
 }
 
