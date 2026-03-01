@@ -1,0 +1,50 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+identity:
+  max_ttl: "60m"
+  max_delegation_depth: 5
+  key_file: ""
+
+audit:
+  db_path: "agentid.db"
+
+scope_bundles:
+  code-contributor:
+    description: "Read and write code, manage PRs, view CI status"
+    scopes:
+      - github:repo:read
+      - github:repo:write
+      - github:pulls:write
+      - github:actions:read
+
+  code-reader:
+    description: "Read-only access to code and CI"
+    scopes:
+      - github:repo:read
+      - github:actions:read
+
+tools:
+  github:
+    upstream: https://api.github.com
+    auth:
+      type: bearer_token
+      token_env: GITHUB_TOKEN
+    operations:
+      - name: github_get_file
+        scope: "github:repo:read"
+        method: GET
+        path: "/repos/{owner}/{repo}/contents/{path}"
+      - name: github_create_branch
+        scope: "github:repo:write"
+        method: POST
+        path: "/repos/{owner}/{repo}/git/refs"
+      - name: github_create_pr
+        scope: "github:pulls:write"
+        method: POST
+        path: "/repos/{owner}/{repo}/pulls"
+      - name: github_get_ci_status
+        scope: "github:actions:read"
+        method: GET
+        path: "/repos/{owner}/{repo}/commits/{ref}/status"
