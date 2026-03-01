@@ -21,6 +21,8 @@ go install ./cmd/agentid
 
 ### Configure
 
+Examples here are based on interacting with the Github API via agents and MCP. More adapters will be added soon.
+
 ```
 cp configs/example-gateway.yaml gateway.yaml
 export GITHUB_TOKEN=ghp_your_token_here
