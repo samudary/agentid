@@ -53,12 +53,24 @@ func NewServer(identitySvc *identity.Service, auditLog *audit.Logger, router *Ro
 		mux:      http.NewServeMux(),
 	}
 	s.mux.HandleFunc("POST /mcp", s.handleMCP)
+	s.mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
 	return s
 }
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+// handleJWKS serves the JSON Web Key Set endpoint, allowing external systems
+// to verify AgentID-issued JWTs without direct access to the signing key.
+func (s *Server) handleJWKS(w http.ResponseWriter, _ *http.Request) {
+	jwk := s.identity.PublicKeyJWK()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	json.NewEncoder(w).Encode(map[string]any{
+		"keys": []any{jwk},
+	})
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {

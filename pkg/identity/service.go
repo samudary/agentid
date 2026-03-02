@@ -230,6 +230,13 @@ func (svc *Service) GetDelegationChain(ctx context.Context, taskID string) ([]st
 	return svc.store.GetDelegationChain(ctx, taskID)
 }
 
+// PublicKeyJWK returns the service's public signing key in JWK format.
+// This is used to serve the /.well-known/jwks.json endpoint so external
+// systems can verify AgentID-issued JWTs.
+func (svc *Service) PublicKeyJWK() map[string]any {
+	return svc.keyPair.PublicKeyJWK()
+}
+
 // helper: deduplicate and sort scopes
 func deduplicateScopes(scopes []string) []string {
 	seen := make(map[string]bool, len(scopes))

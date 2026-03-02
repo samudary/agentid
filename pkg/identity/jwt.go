@@ -4,7 +4,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -85,6 +87,35 @@ func LoadOrGenerateKeyPair(path string) (*KeyPair, error) {
 		return nil, fmt.Errorf("save generated key: %w", err)
 	}
 	return kp, nil
+}
+
+// PublicKeyJWK returns the public key in JSON Web Key format (RFC 7517).
+// The key ID (kid) is derived from a SHA-256 thumbprint of the key coordinates.
+func (kp *KeyPair) PublicKeyJWK() map[string]any {
+	// P-256 coordinates are 32 bytes each. Pad to fixed size.
+	byteLen := (kp.Public.Curve.Params().BitSize + 7) / 8
+	xBytes := kp.Public.X.Bytes()
+	yBytes := kp.Public.Y.Bytes()
+
+	// Left-pad with zeros if necessary
+	xPadded := make([]byte, byteLen)
+	yPadded := make([]byte, byteLen)
+	copy(xPadded[byteLen-len(xBytes):], xBytes)
+	copy(yPadded[byteLen-len(yBytes):], yBytes)
+
+	// Compute kid as truncated SHA-256 of the raw public key bytes
+	thumbprint := sha256.Sum256(append(xPadded, yPadded...))
+	kid := base64.RawURLEncoding.EncodeToString(thumbprint[:8])
+
+	return map[string]any{
+		"kty": "EC",
+		"crv": "P-256",
+		"x":   base64.RawURLEncoding.EncodeToString(xPadded),
+		"y":   base64.RawURLEncoding.EncodeToString(yPadded),
+		"use": "sig",
+		"alg": "ES256",
+		"kid": kid,
+	}
 }
 
 // SignToken signs the given claims with the ES256 private key and returns
