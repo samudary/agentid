@@ -117,8 +117,8 @@ func (s *Server) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) {
 	})
 }
 
-func (s *Server) handleToolsList(w http.ResponseWriter, req jsonRPCRequest, _ *identity.TaskClaims) {
-	tools := s.router.AllTools()
+func (s *Server) handleToolsList(w http.ResponseWriter, req jsonRPCRequest, claims *identity.TaskClaims) {
+	tools := s.router.ToolsForScopes(claims.Scopes)
 	writeRPCResult(w, req.ID, map[string]any{"tools": tools})
 }
 

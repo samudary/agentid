@@ -45,3 +45,19 @@ func (r *Router) AllTools() []adapters.ToolDefinition {
 	}
 	return all
 }
+
+// ToolsForScopes returns only the tools whose required scope is covered by
+// the given task scopes. This enables accurate tool discovery — agents only
+// see the tools they're authorized to call.
+func (r *Router) ToolsForScopes(taskScopes []string) []adapters.ToolDefinition {
+	var filtered []adapters.ToolDefinition
+	for _, a := range r.adapters {
+		for _, tool := range a.Tools() {
+			required := a.ScopeForTool(tool.Name)
+			if required == "" || hasScope(taskScopes, required) {
+				filtered = append(filtered, tool)
+			}
+		}
+	}
+	return filtered
+}

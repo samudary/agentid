@@ -158,8 +158,10 @@ func parseRPCResponse(t *testing.T, resp *http.Response) rpcResponse {
 	return r
 }
 
-func TestToolsList(t *testing.T) {
+func TestToolsListFilteredByScope(t *testing.T) {
 	stack := setupStack(t)
+
+	// Task with only github:repo:read should only see github_get_file
 	jwt := createTaskJWT(t, stack, []string{"github:repo:read"})
 
 	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, jwt, "tools/list", nil)
@@ -183,14 +185,41 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 
-	if len(result.Tools) != 4 {
-		t.Errorf("expected 4 tools, got %d", len(result.Tools))
+	if len(result.Tools) != 1 {
+		t.Errorf("expected 1 tool for github:repo:read scope, got %d", len(result.Tools))
+		for _, tool := range result.Tools {
+			t.Logf("  tool: %s", tool.Name)
+		}
+	}
+	if len(result.Tools) > 0 && result.Tools[0].Name != "github_get_file" {
+		t.Errorf("expected github_get_file, got %q", result.Tools[0].Name)
+	}
+}
+
+func TestToolsListAllWithWildcard(t *testing.T) {
+	stack := setupStack(t)
+
+	// Wildcard scope should see all tools
+	jwt := createTaskJWT(t, stack, []string{"github:*:*"})
+
+	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, jwt, "tools/list", nil)
+	rpc := parseRPCResponse(t, resp)
+
+	if rpc.Error != nil {
+		t.Fatalf("unexpected error: %v", rpc.Error)
 	}
 
-	for _, tool := range result.Tools {
-		if tool.Name == "" {
-			t.Error("tool has empty name")
-		}
+	var result struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(rpc.Result, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if len(result.Tools) != 4 {
+		t.Errorf("expected 4 tools with wildcard scope, got %d", len(result.Tools))
 	}
 }
 
