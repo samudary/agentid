@@ -15,6 +15,7 @@ import (
 	"github.com/samudary/agentid/pkg/audit"
 	"github.com/samudary/agentid/pkg/identity"
 	"github.com/samudary/agentid/pkg/proxy"
+	"github.com/samudary/agentid/pkg/store"
 	"github.com/samudary/agentid/pkg/store/sqlite"
 )
 
@@ -22,6 +23,8 @@ import (
 type testStack struct {
 	proxyServer  *proxy.Server
 	identitySvc  *identity.Service
+	auditLog     *audit.Logger
+	store        store.Store
 	mockGitHub   *httptest.Server
 	proxyTestSrv *httptest.Server
 }
@@ -82,6 +85,8 @@ func setupStack(t *testing.T) *testStack {
 	return &testStack{
 		proxyServer:  proxyServer,
 		identitySvc:  identitySvc,
+		auditLog:     auditLog,
+		store:        store,
 		mockGitHub:   mockGitHub,
 		proxyTestSrv: proxySrv,
 	}
@@ -449,5 +454,166 @@ func TestToolCallWithWildcardScope(t *testing.T) {
 	}
 	if rpc.Error != nil {
 		t.Fatalf("unexpected error with wildcard scope: code=%d message=%s", rpc.Error.Code, rpc.Error.Message)
+	}
+}
+
+func TestJWKSEndpoint(t *testing.T) {
+	stack := setupStack(t)
+
+	resp, err := http.Get(stack.proxyTestSrv.URL + "/.well-known/jwks.json")
+	if err != nil {
+		t.Fatalf("GET JWKS: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "public, max-age=3600" {
+		t.Errorf("Cache-Control = %q, want \"public, max-age=3600\"", cc)
+	}
+
+	var jwks struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Crv string `json:"crv"`
+			X   string `json:"x"`
+			Y   string `json:"y"`
+			Use string `json:"use"`
+			Alg string `json:"alg"`
+			Kid string `json:"kid"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		t.Fatalf("decode JWKS: %v", err)
+	}
+
+	if len(jwks.Keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(jwks.Keys))
+	}
+	key := jwks.Keys[0]
+	if key.Kty != "EC" {
+		t.Errorf("kty = %q, want EC", key.Kty)
+	}
+	if key.Crv != "P-256" {
+		t.Errorf("crv = %q, want P-256", key.Crv)
+	}
+	if key.Alg != "ES256" {
+		t.Errorf("alg = %q, want ES256", key.Alg)
+	}
+	if key.Use != "sig" {
+		t.Errorf("use = %q, want sig", key.Use)
+	}
+	if key.Kid == "" {
+		t.Error("kid should not be empty")
+	}
+	if key.X == "" || key.Y == "" {
+		t.Error("x and y coordinates should not be empty")
+	}
+}
+
+// TestEndToEnd exercises the full flow:
+// 1. Create task with scopes
+// 2. Call a tool via MCP JSON-RPC
+// 3. Verify the audit event was emitted with enriched fields
+func TestEndToEnd(t *testing.T) {
+	stack := setupStack(t)
+	ctx := context.Background()
+
+	// 1. Create a task
+	cred, err := stack.identitySvc.CreateTask(ctx, identity.TaskRequest{
+		ParentID: "human:operator@example.com",
+		Purpose:  "end-to-end integration test",
+		Scopes:   []string{"github:repo:read"},
+		TTL:      10 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// 2. Call a tool via the MCP proxy
+	params := map[string]any{
+		"name": "github_get_file",
+		"arguments": map[string]string{
+			"owner": "octocat",
+			"repo":  "hello-world",
+			"path":  "README.md",
+		},
+	}
+	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, cred.JWT, "tools/call", params)
+	rpc := parseRPCResponse(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if rpc.Error != nil {
+		t.Fatalf("unexpected error: code=%d message=%s", rpc.Error.Code, rpc.Error.Message)
+	}
+
+	// 3. Query audit events and verify enrichment
+	events, err := stack.auditLog.Query(ctx, store.EventFilter{
+		TaskID: cred.TaskID,
+		Event:  audit.EventToolInvoked,
+	})
+	if err != nil {
+		t.Fatalf("query audit events: %v", err)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("expected at least one tool.invoked audit event")
+	}
+
+	event := events[0]
+	if event.TaskID != cred.TaskID {
+		t.Errorf("event task ID = %q, want %q", event.TaskID, cred.TaskID)
+	}
+	if event.Event != audit.EventToolInvoked {
+		t.Errorf("event type = %q, want %q", event.Event, audit.EventToolInvoked)
+	}
+
+	// Verify enriched payload fields
+	payload := event.Payload
+	if payload["tool"] != "github_get_file" {
+		t.Errorf("payload.tool = %v, want github_get_file", payload["tool"])
+	}
+	if payload["result"] != "success" {
+		t.Errorf("payload.result = %v, want success", payload["result"])
+	}
+
+	// duration_ms should be present and non-negative
+	durationMs, ok := payload["duration_ms"]
+	if !ok {
+		t.Error("payload.duration_ms is missing")
+	} else {
+		// JSON numbers are float64 when unmarshalled via map[string]any
+		if d, ok := durationMs.(float64); ok {
+			if d < 0 {
+				t.Errorf("payload.duration_ms = %v, want >= 0", d)
+			}
+		} else {
+			t.Errorf("payload.duration_ms has unexpected type %T", durationMs)
+		}
+	}
+
+	// upstream_status should be present (mock returns 200)
+	upstreamStatus, ok := payload["upstream_status"]
+	if !ok {
+		t.Error("payload.upstream_status is missing")
+	} else {
+		if s, ok := upstreamStatus.(float64); ok {
+			if int(s) != 200 {
+				t.Errorf("payload.upstream_status = %v, want 200", s)
+			}
+		} else {
+			t.Errorf("payload.upstream_status has unexpected type %T", upstreamStatus)
+		}
+	}
+
+	// Verify delegation chain is present on the event
+	if len(event.DelegationChain) == 0 {
+		t.Error("expected non-empty delegation chain on audit event")
 	}
 }
