@@ -442,6 +442,110 @@ func TestAdapterName(t *testing.T) {
 	}
 }
 
+func TestGetFilePathTraversal(t *testing.T) {
+	adapter, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not make HTTP request for path traversal input")
+	})
+
+	tests := []struct {
+		name  string
+		input map[string]string
+	}{
+		{
+			name:  "path traversal in path",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world", "path": "../../etc/passwd"},
+		},
+		{
+			name:  "traversal in owner",
+			input: map[string]string{"owner": "../evil", "repo": "hello-world", "path": "README.md"},
+		},
+		{
+			name:  "slash in owner",
+			input: map[string]string{"owner": "octocat/evil", "repo": "hello-world", "path": "README.md"},
+		},
+		{
+			name:  "query string in repo",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world?admin=true", "path": "README.md"},
+		},
+		{
+			name:  "null byte in path",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world", "path": "README.md\x00.evil"},
+		},
+		{
+			name:  "traversal in ref",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world", "path": "README.md", "ref": "../../main"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input, _ := json.Marshal(tt.input)
+			_, err := adapter.Invoke(context.Background(), "github_get_file", input)
+			if err == nil {
+				t.Error("expected validation error, got nil")
+			}
+		})
+	}
+}
+
+func TestCreateBranchInputValidation(t *testing.T) {
+	adapter, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not make HTTP request for invalid input")
+	})
+
+	tests := []struct {
+		name  string
+		input map[string]string
+	}{
+		{
+			name:  "traversal in from_ref",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world", "branch": "new", "from_ref": "../../main"},
+		},
+		{
+			name:  "query string in branch",
+			input: map[string]string{"owner": "octocat", "repo": "hello-world", "branch": "new?foo=bar"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input, _ := json.Marshal(tt.input)
+			_, err := adapter.Invoke(context.Background(), "github_create_branch", input)
+			if err == nil {
+				t.Error("expected validation error, got nil")
+			}
+		})
+	}
+}
+
+func TestValidRefWithSlashes(t *testing.T) {
+	// Branch names like "feature/foo" should be accepted
+	var receivedPath string
+	adapter, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"name": "file.go"})
+	})
+
+	input, _ := json.Marshal(map[string]string{
+		"owner": "octocat",
+		"repo":  "hello-world",
+		"path":  "src/main.go",
+		"ref":   "feature/my-branch",
+	})
+
+	result, err := adapter.Invoke(context.Background(), "github_get_file", input)
+	if err != nil {
+		t.Fatalf("valid ref with slash should be accepted, got error: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("expected success")
+	}
+	if receivedPath != "/repos/octocat/hello-world/contents/src/main.go" {
+		t.Errorf("path = %q, want /repos/octocat/hello-world/contents/src/main.go", receivedPath)
+	}
+}
+
 func TestInvokeUnknownTool(t *testing.T) {
 	adapter, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("should not make HTTP request for unknown tool")

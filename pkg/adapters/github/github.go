@@ -7,10 +7,69 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/samudary/agentid/pkg/adapters"
 )
+
+// identifierRegex matches valid GitHub owner/repo names: alphanumeric, dots,
+// hyphens, and underscores.
+var identifierRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// validateIdentifier checks that a value is a valid GitHub identifier (owner
+// or repo name). Rejects empty strings and values with path traversal,
+// slashes, query strings, or other URL-special characters.
+func validateIdentifier(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s must not be empty", name)
+	}
+	if !identifierRegex.MatchString(value) {
+		return fmt.Errorf("%s contains invalid characters: %q (allowed: alphanumeric, dots, hyphens, underscores)", name, value)
+	}
+	return nil
+}
+
+// validateRef checks that a git ref (branch name, tag, SHA) doesn't contain
+// path traversal sequences or null bytes. Allows forward slashes since branch
+// names like "feature/foo" are valid.
+func validateRef(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s must not be empty", name)
+	}
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("%s contains path traversal sequence: %q", name, value)
+	}
+	if strings.ContainsRune(value, 0) {
+		return fmt.Errorf("%s contains null byte", name)
+	}
+	if strings.ContainsAny(value, "?#\\") {
+		return fmt.Errorf("%s contains URL-special characters: %q", name, value)
+	}
+	return nil
+}
+
+// validatePath checks that a file path doesn't contain path traversal
+// segments. Allows forward slashes (needed for directory paths like
+// "src/main.go") but rejects any segment that is "..".
+func validatePath(value string) error {
+	if value == "" {
+		return fmt.Errorf("path must not be empty")
+	}
+	if strings.ContainsRune(value, 0) {
+		return fmt.Errorf("path contains null byte")
+	}
+	if strings.ContainsAny(value, "?#\\") {
+		return fmt.Errorf("path contains URL-special characters: %q", value)
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return fmt.Errorf("path contains traversal segment '..': %q", value)
+		}
+	}
+	return nil
+}
 
 // Adapter implements the adapters.Adapter interface for GitHub REST API.
 type Adapter struct {
@@ -136,12 +195,25 @@ func (a *Adapter) getFile(ctx context.Context, input json.RawMessage) (*adapters
 		return nil, fmt.Errorf("parse input: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s", a.baseURL, params.Owner, params.Repo, params.Path)
-	if params.Ref != "" {
-		url += "?ref=" + params.Ref
+	if err := validateIdentifier("owner", params.Owner); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier("repo", params.Repo); err != nil {
+		return nil, err
+	}
+	if err := validatePath(params.Path); err != nil {
+		return nil, err
 	}
 
-	return a.doRequest(ctx, http.MethodGet, url, nil)
+	reqURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s", a.baseURL, params.Owner, params.Repo, params.Path)
+	if params.Ref != "" {
+		if err := validateRef("ref", params.Ref); err != nil {
+			return nil, err
+		}
+		reqURL += "?ref=" + url.QueryEscape(params.Ref)
+	}
+
+	return a.doRequest(ctx, http.MethodGet, reqURL, nil)
 }
 
 func (a *Adapter) createBranch(ctx context.Context, input json.RawMessage) (*adapters.ToolResult, error) {
@@ -155,8 +227,21 @@ func (a *Adapter) createBranch(ctx context.Context, input json.RawMessage) (*ada
 		return nil, fmt.Errorf("parse input: %w", err)
 	}
 
+	if err := validateIdentifier("owner", params.Owner); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier("repo", params.Repo); err != nil {
+		return nil, err
+	}
+	if err := validateRef("branch", params.Branch); err != nil {
+		return nil, err
+	}
+
 	if params.FromRef == "" {
 		params.FromRef = "main"
+	}
+	if err := validateRef("from_ref", params.FromRef); err != nil {
+		return nil, err
 	}
 
 	// Step 1: Get the SHA of the base ref
@@ -202,11 +287,24 @@ func (a *Adapter) createPR(ctx context.Context, input json.RawMessage) (*adapter
 		return nil, fmt.Errorf("parse input: %w", err)
 	}
 
+	if err := validateIdentifier("owner", params.Owner); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier("repo", params.Repo); err != nil {
+		return nil, err
+	}
+	if err := validateRef("head", params.Head); err != nil {
+		return nil, err
+	}
+
 	if params.Base == "" {
 		params.Base = "main"
 	}
+	if err := validateRef("base", params.Base); err != nil {
+		return nil, err
+	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/pulls", a.baseURL, params.Owner, params.Repo)
+	reqURL := fmt.Sprintf("%s/repos/%s/%s/pulls", a.baseURL, params.Owner, params.Repo)
 	body := map[string]string{
 		"title": params.Title,
 		"body":  params.Body,
@@ -214,7 +312,7 @@ func (a *Adapter) createPR(ctx context.Context, input json.RawMessage) (*adapter
 		"base":  params.Base,
 	}
 
-	return a.doRequest(ctx, http.MethodPost, url, body)
+	return a.doRequest(ctx, http.MethodPost, reqURL, body)
 }
 
 func (a *Adapter) getCIStatus(ctx context.Context, input json.RawMessage) (*adapters.ToolResult, error) {
@@ -227,9 +325,19 @@ func (a *Adapter) getCIStatus(ctx context.Context, input json.RawMessage) (*adap
 		return nil, fmt.Errorf("parse input: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/commits/%s/status", a.baseURL, params.Owner, params.Repo, params.Ref)
+	if err := validateIdentifier("owner", params.Owner); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier("repo", params.Repo); err != nil {
+		return nil, err
+	}
+	if err := validateRef("ref", params.Ref); err != nil {
+		return nil, err
+	}
 
-	return a.doRequest(ctx, http.MethodGet, url, nil)
+	reqURL := fmt.Sprintf("%s/repos/%s/%s/commits/%s/status", a.baseURL, params.Owner, params.Repo, params.Ref)
+
+	return a.doRequest(ctx, http.MethodGet, reqURL, nil)
 }
 
 // doRequest is a shared helper that builds, authenticates, sends, and reads
