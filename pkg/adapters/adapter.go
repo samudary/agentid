@@ -48,8 +48,9 @@ type ToolDefinition struct {
 
 // ToolResult contains the response from a tool invocation.
 type ToolResult struct {
-	Content []ContentBlock `json:"content"`
-	IsError bool           `json:"isError,omitempty"`
+	Content    []ContentBlock `json:"content"`
+	IsError    bool           `json:"isError,omitempty"`
+	StatusCode int            `json:"-"` // Upstream HTTP status code (0 = not applicable); excluded from JSON serialization
 }
 
 // ContentBlock is a piece of tool result content.

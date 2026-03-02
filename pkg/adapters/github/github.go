@@ -267,12 +267,14 @@ func (a *Adapter) doRequest(ctx context.Context, method, url string, body any) (
 
 	if resp.StatusCode >= 400 {
 		return &adapters.ToolResult{
-			Content: []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
-			IsError: true,
+			Content:    []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
+			IsError:    true,
+			StatusCode: resp.StatusCode,
 		}, nil
 	}
 
 	return &adapters.ToolResult{
-		Content: []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
+		Content:    []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
+		StatusCode: resp.StatusCode,
 	}, nil
 }

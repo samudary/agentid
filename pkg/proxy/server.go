@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/samudary/agentid/pkg/audit"
 	"github.com/samudary/agentid/pkg/identity"
@@ -149,23 +150,35 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, ctx context.Context, req
 		return
 	}
 
-	// Invoke tool
+	// Invoke tool with timing
+	start := time.Now()
 	result, err := adapter.Invoke(ctx, params.Name, params.Arguments)
+	durationMs := time.Since(start).Milliseconds()
+
 	if err != nil {
 		s.audit.Emit(ctx, audit.EventToolInvoked, claims.Subject, claims.DelegationChain, map[string]any{
-			"tool":   params.Name,
-			"result": "error",
-			"error":  err.Error(),
+			"tool":        params.Name,
+			"result":      "error",
+			"error":       err.Error(),
+			"duration_ms": durationMs,
 		})
 		writeRPCError(w, req.ID, -32000, fmt.Sprintf("tool invocation failed: %v", err))
 		return
 	}
 
-	// Emit success audit event
-	s.audit.Emit(ctx, audit.EventToolInvoked, claims.Subject, claims.DelegationChain, map[string]any{
-		"tool":   params.Name,
-		"result": "success",
-	})
+	// Emit success audit event with duration and upstream status
+	auditPayload := map[string]any{
+		"tool":        params.Name,
+		"result":      "success",
+		"duration_ms": durationMs,
+	}
+	if result.StatusCode != 0 {
+		auditPayload["upstream_status"] = result.StatusCode
+	}
+	if result.IsError {
+		auditPayload["result"] = "upstream_error"
+	}
+	s.audit.Emit(ctx, audit.EventToolInvoked, claims.Subject, claims.DelegationChain, auditPayload)
 
 	writeRPCResult(w, req.ID, result)
 }
