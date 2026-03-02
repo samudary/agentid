@@ -46,8 +46,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		switch name {
 		case "github":
 			token, _, _, _ := toolCfg.Auth.ResolveAuth()
-			authCfg := proxy.AuthConfig{
-				Type:  proxy.AuthType(toolCfg.Auth.Type),
+			authCfg := adapters.UpstreamAuth{
+				Type:  adapters.UpstreamAuthType(toolCfg.Auth.Type),
 				Token: token,
 			}
 			adapterList = append(adapterList, github.New(toolCfg.Upstream, authCfg))

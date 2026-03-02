@@ -65,8 +65,8 @@ func setupStack(t *testing.T) *testStack {
 	t.Cleanup(mockGitHub.Close)
 
 	// 5. GitHub adapter pointing at mock server
-	ghAuth := proxy.AuthConfig{
-		Type:  proxy.AuthBearer,
+	ghAuth := adapters.UpstreamAuth{
+		Type:  adapters.AuthBearer,
 		Token: "upstream-github-token",
 	}
 	ghAdapter := github.New(mockGitHub.URL, ghAuth)

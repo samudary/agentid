@@ -10,13 +10,12 @@ import (
 	"strings"
 
 	"github.com/samudary/agentid/pkg/adapters"
-	"github.com/samudary/agentid/pkg/proxy"
 )
 
 // Adapter implements the adapters.Adapter interface for GitHub REST API.
 type Adapter struct {
 	baseURL    string // e.g., "https://api.github.com" or test server URL
-	auth       proxy.AuthConfig
+	auth       adapters.UpstreamAuth
 	httpClient *http.Client
 }
 
@@ -24,7 +23,7 @@ type Adapter struct {
 var _ adapters.Adapter = (*Adapter)(nil)
 
 // New creates a new GitHub adapter.
-func New(baseURL string, auth proxy.AuthConfig) *Adapter {
+func New(baseURL string, auth adapters.UpstreamAuth) *Adapter {
 	return &Adapter{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		auth:       auth,

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/samudary/agentid/pkg/adapters"
 	github "github.com/samudary/agentid/pkg/adapters/github"
-	"github.com/samudary/agentid/pkg/proxy"
 )
 
 func newTestAdapter(t *testing.T, handler http.HandlerFunc) (*github.Adapter, *httptest.Server) {
@@ -17,8 +17,8 @@ func newTestAdapter(t *testing.T, handler http.HandlerFunc) (*github.Adapter, *h
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	auth := proxy.AuthConfig{
-		Type:  proxy.AuthBearer,
+	auth := adapters.UpstreamAuth{
+		Type:  adapters.AuthBearer,
 		Token: "test-token-123",
 	}
 	adapter := github.New(server.URL, auth)
@@ -381,7 +381,7 @@ func TestGetCIStatus(t *testing.T) {
 }
 
 func TestScopeMapping(t *testing.T) {
-	auth := proxy.AuthConfig{Type: proxy.AuthBearer, Token: "x"}
+	auth := adapters.UpstreamAuth{Type: adapters.AuthBearer, Token: "x"}
 	adapter := github.New("https://api.github.com", auth)
 
 	tests := []struct {
@@ -406,7 +406,7 @@ func TestScopeMapping(t *testing.T) {
 }
 
 func TestToolDefinitions(t *testing.T) {
-	auth := proxy.AuthConfig{Type: proxy.AuthBearer, Token: "x"}
+	auth := adapters.UpstreamAuth{Type: adapters.AuthBearer, Token: "x"}
 	adapter := github.New("https://api.github.com", auth)
 
 	tools := adapter.Tools()
@@ -434,7 +434,7 @@ func TestToolDefinitions(t *testing.T) {
 }
 
 func TestAdapterName(t *testing.T) {
-	auth := proxy.AuthConfig{Type: proxy.AuthBearer, Token: "x"}
+	auth := adapters.UpstreamAuth{Type: adapters.AuthBearer, Token: "x"}
 	adapter := github.New("https://api.github.com", auth)
 
 	if adapter.Name() != "github" {
