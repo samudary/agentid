@@ -255,8 +255,9 @@ func TestToolCallInsufficientScope(t *testing.T) {
 	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, jwt, "tools/call", params)
 	rpc := parseRPCResponse(t, resp)
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	// JSON-RPC 2.0: errors always return HTTP 200 with error info in the body
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (JSON-RPC errors use HTTP 200)", resp.StatusCode)
 	}
 	if rpc.Error == nil {
 		t.Fatal("expected error response")
@@ -273,8 +274,9 @@ func TestToolCallNoAuth(t *testing.T) {
 	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, "", "tools/list", nil)
 	rpc := parseRPCResponse(t, resp)
 
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	// JSON-RPC 2.0: auth errors still return HTTP 200 with error in body
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (JSON-RPC errors use HTTP 200)", resp.StatusCode)
 	}
 	if rpc.Error == nil {
 		t.Fatal("expected error response")
@@ -304,8 +306,9 @@ func TestToolCallExpiredToken(t *testing.T) {
 	resp := jsonRPCCall(t, stack.proxyTestSrv.URL, cred.JWT, "tools/list", nil)
 	rpc := parseRPCResponse(t, resp)
 
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	// JSON-RPC 2.0: auth errors still return HTTP 200 with error in body
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (JSON-RPC errors use HTTP 200)", resp.StatusCode)
 	}
 	if rpc.Error == nil {
 		t.Fatal("expected error response")
@@ -344,8 +347,9 @@ func TestToolCallRevokedToken(t *testing.T) {
 	resp = jsonRPCCall(t, stack.proxyTestSrv.URL, cred.JWT, "tools/list", nil)
 	rpc = parseRPCResponse(t, resp)
 
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	// JSON-RPC 2.0: auth errors still return HTTP 200 with error in body
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (JSON-RPC errors use HTTP 200)", resp.StatusCode)
 	}
 	if rpc.Error == nil {
 		t.Fatal("expected error response after revocation")

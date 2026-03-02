@@ -192,14 +192,9 @@ func writeRPCResult(w http.ResponseWriter, id any, result any) {
 
 func writeRPCError(w http.ResponseWriter, id any, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	status := http.StatusOK // JSON-RPC errors are still 200 OK
-	if code == -32000 || code == -32001 {
-		status = http.StatusUnauthorized
-	}
-	if code == -32003 {
-		status = http.StatusForbidden
-	}
-	w.WriteHeader(status)
+	// JSON-RPC 2.0 spec: errors are always returned with HTTP 200; the error
+	// information lives in the JSON body. Auth and scope errors use application-
+	// defined error codes (-32000 through -32003) rather than HTTP status codes.
 	json.NewEncoder(w).Encode(jsonRPCResponse{
 		JSONRPC: "2.0",
 		Error:   &rpcError{Code: code, Message: message},
