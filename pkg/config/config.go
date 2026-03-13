@@ -15,10 +15,25 @@ import (
 // Config is the top-level configuration for the AgentID gateway.
 type Config struct {
 	Server       ServerConfig                     `koanf:"server"`
+	Admin        AdminConfig                      `koanf:"admin"`
 	Identity     IdentityConfig                   `koanf:"identity"`
 	Tools        map[string]ToolConfig            `koanf:"tools"`
 	ScopeBundles map[string]identity.BundleConfig `koanf:"scope_bundles"`
 	Audit        AuditConfig                      `koanf:"audit"`
+}
+
+// AdminConfig controls authentication for the control plane API
+// (task management endpoints).
+type AdminConfig struct {
+	Auth AdminAuthConfig `koanf:"auth"`
+}
+
+// AdminAuthConfig defines the admin authentication strategy.
+// Currently supports "api_key" type with a key resolved from an
+// environment variable.
+type AdminAuthConfig struct {
+	Type   string `koanf:"type"`    // "api_key" (default and only supported type for now)
+	KeyEnv string `koanf:"key_env"` // Environment variable containing the API key
 }
 
 // ServerConfig defines the HTTP listener settings.
@@ -36,6 +51,7 @@ type IdentityConfig struct {
 
 // ToolConfig defines an upstream tool service and its operations.
 type ToolConfig struct {
+	Type       string            `koanf:"type"` // Optional adapter implementation type, e.g. "github" or "rest"
 	Upstream   string            `koanf:"upstream"`
 	Auth       AuthConfig        `koanf:"auth"`
 	Operations []OperationConfig `koanf:"operations"`
@@ -53,11 +69,17 @@ type AuthConfig struct {
 }
 
 // OperationConfig maps a named operation to an HTTP method, path, and scope.
+// For purpose-built adapters, only Name and Scope are typically used (the
+// adapter hardcodes its own HTTP logic). For the generic REST adapter, all
+// fields are required — Method, Path, Description, and InputSchema drive
+// the tool definition and HTTP call construction.
 type OperationConfig struct {
-	Name   string `koanf:"name"`
-	Scope  string `koanf:"scope"`
-	Method string `koanf:"method"`
-	Path   string `koanf:"path"`
+	Name        string         `koanf:"name"`
+	Description string         `koanf:"description"`
+	Scope       string         `koanf:"scope"`
+	Method      string         `koanf:"method"`
+	Path        string         `koanf:"path"`
+	InputSchema map[string]any `koanf:"input_schema"` // JSON Schema as a map; marshaled to json.RawMessage for MCP
 }
 
 // AuditConfig controls the audit log storage.
@@ -94,6 +116,10 @@ func Load(path string) (*Config, error) {
 		cfg.Audit.DBPath = "agentid.db"
 	}
 
+	if cfg.Admin.Auth.Type == "" {
+		cfg.Admin.Auth.Type = "api_key"
+	}
+
 	// Validate scope bundles at startup
 	if len(cfg.ScopeBundles) > 0 {
 		if err := identity.ValidateBundleConfigs(cfg.ScopeBundles); err != nil {
@@ -107,6 +133,15 @@ func Load(path string) (*Config, error) {
 // MaxTTLDuration parses the MaxTTL string into a time.Duration.
 func (c *Config) MaxTTLDuration() (time.Duration, error) {
 	return time.ParseDuration(c.Identity.MaxTTL)
+}
+
+// ResolveAdminKey resolves the admin API key from the configured
+// environment variable. Returns empty string if no key_env is configured.
+func (a *AdminAuthConfig) ResolveAdminKey() string {
+	if a.KeyEnv != "" {
+		return os.Getenv(a.KeyEnv)
+	}
+	return ""
 }
 
 // ResolveAuth resolves environment variable references in auth config

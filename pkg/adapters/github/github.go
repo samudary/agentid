@@ -1,17 +1,16 @@
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/samudary/agentid/pkg/adapters"
+	"github.com/samudary/agentid/pkg/adapters/httpclient"
 )
 
 // identifierRegex matches valid GitHub owner/repo names: alphanumeric, dots,
@@ -71,11 +70,19 @@ func validatePath(value string) error {
 	return nil
 }
 
+func init() {
+	adapters.Register("github", func(baseURL string, auth adapters.UpstreamAuth) (adapters.Adapter, error) {
+		return New(baseURL, auth), nil
+	})
+}
+
+// githubAccept is the Accept header value for GitHub REST API v3.
+const githubAccept = "application/vnd.github.v3+json"
+
 // Adapter implements the adapters.Adapter interface for GitHub REST API.
 type Adapter struct {
-	baseURL    string // e.g., "https://api.github.com" or test server URL
-	auth       adapters.UpstreamAuth
-	httpClient *http.Client
+	baseURL string // e.g., "https://api.github.com" or test server URL
+	client  *httpclient.Client
 }
 
 // Satisfies adapters.Adapter.
@@ -84,9 +91,8 @@ var _ adapters.Adapter = (*Adapter)(nil)
 // New creates a new GitHub adapter.
 func New(baseURL string, auth adapters.UpstreamAuth) *Adapter {
 	return &Adapter{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		auth:       auth,
-		httpClient: &http.Client{},
+		baseURL: strings.TrimRight(baseURL, "/"),
+		client:  httpclient.New(auth, nil),
 	}
 }
 
@@ -340,49 +346,7 @@ func (a *Adapter) getCIStatus(ctx context.Context, input json.RawMessage) (*adap
 	return a.doRequest(ctx, http.MethodGet, reqURL, nil)
 }
 
-// doRequest is a shared helper that builds, authenticates, sends, and reads
-// an HTTP request, returning the result as a ToolResult.
+// doRequest delegates to the shared HTTP client with the GitHub Accept header.
 func (a *Adapter) doRequest(ctx context.Context, method, url string, body any) (*adapters.ToolResult, error) {
-	var reqBody io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("marshal request body: %w", err)
-		}
-		reqBody = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	a.auth.Apply(req)
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return &adapters.ToolResult{
-			Content:    []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
-			IsError:    true,
-			StatusCode: resp.StatusCode,
-		}, nil
-	}
-
-	return &adapters.ToolResult{
-		Content:    []adapters.ContentBlock{{Type: "text", Text: string(respBody)}},
-		StatusCode: resp.StatusCode,
-	}, nil
+	return a.client.Do(ctx, method, url, body, githubAccept)
 }

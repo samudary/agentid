@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/samudary/agentid/pkg/adapters"
+	"github.com/samudary/agentid/pkg/adapters/adaptertest"
 	github "github.com/samudary/agentid/pkg/adapters/github"
 )
 
@@ -555,4 +556,30 @@ func TestInvokeUnknownTool(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown tool")
 	}
+}
+
+func TestAdapterConformance(t *testing.T) {
+	// Use the conformance test harness with sample inputs and a mock server
+	adapter, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Handle the two-step create branch flow
+		if r.Method == "GET" && r.URL.Path == "/repos/octocat/hello-world/git/ref/heads/main" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"object": map[string]string{"sha": "abc123"},
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{"mock": true, "path": r.URL.Path})
+	})
+
+	sampleInputs := map[string]json.RawMessage{
+		"github_get_file":      json.RawMessage(`{"owner":"octocat","repo":"hello-world","path":"README.md"}`),
+		"github_create_branch": json.RawMessage(`{"owner":"octocat","repo":"hello-world","branch":"test-branch"}`),
+		"github_create_pr":     json.RawMessage(`{"owner":"octocat","repo":"hello-world","title":"Test PR","head":"feature"}`),
+		"github_get_ci_status": json.RawMessage(`{"owner":"octocat","repo":"hello-world","ref":"abc123"}`),
+	}
+
+	adaptertest.TestAdapterWithInvoke(t, adapter, sampleInputs)
 }

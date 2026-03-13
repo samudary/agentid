@@ -232,22 +232,33 @@ func (s *SQLiteStore) RevokeTask(ctx context.Context, taskID string, revokedAt t
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO revocations (task_id, revoked_at, reason)
-		VALUES (?, ?, ?)`,
-		taskID, revokedAt.UTC().Format(time.RFC3339), reason,
-	)
-	if err != nil {
-		return fmt.Errorf("insert revocation: %w", err)
-	}
-
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE tasks SET status = ?, status_reason = ?
 		WHERE id = ?`,
 		string(store.TaskStatusRevoked), reason, taskID,
 	)
 	if err != nil {
 		return fmt.Errorf("update task to revoked: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return store.ErrTaskNotFound
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO revocations (task_id, revoked_at, reason)
+		VALUES (?, ?, ?)
+		ON CONFLICT(task_id) DO UPDATE SET
+			revoked_at = excluded.revoked_at,
+			reason = excluded.reason`,
+		taskID, revokedAt.UTC().Format(time.RFC3339), reason,
+	)
+	if err != nil {
+		return fmt.Errorf("insert revocation: %w", err)
 	}
 
 	return tx.Commit()

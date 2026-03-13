@@ -2,6 +2,11 @@ server:
   host: "0.0.0.0"
   port: 8080
 
+admin:
+  auth:
+    type: api_key
+    key_env: AGENTID_ADMIN_KEY
+
 identity:
   max_ttl: "60m"
   max_delegation_depth: 5
@@ -33,18 +38,55 @@ tools:
       token_env: GITHUB_TOKEN
     operations:
       - name: github_get_file
+        description: "Get file contents from a GitHub repository"
         scope: "github:repo:read"
         method: GET
         path: "/repos/{owner}/{repo}/contents/{path}"
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string, description: "Repository owner" }
+            repo: { type: string, description: "Repository name" }
+            path: { type: string, description: "File path" }
+            ref: { type: string, description: "Branch or commit ref (optional)" }
+          required: [owner, repo, path]
       - name: github_create_branch
+        description: "Create a new branch in a GitHub repository"
         scope: "github:repo:write"
         method: POST
         path: "/repos/{owner}/{repo}/git/refs"
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string, description: "Repository owner" }
+            repo: { type: string, description: "Repository name" }
+            branch: { type: string, description: "New branch name" }
+            from_ref: { type: string, description: "Base ref (default: main)" }
+          required: [owner, repo, branch]
       - name: github_create_pr
+        description: "Create a pull request"
         scope: "github:pulls:write"
         method: POST
         path: "/repos/{owner}/{repo}/pulls"
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string, description: "Repository owner" }
+            repo: { type: string, description: "Repository name" }
+            title: { type: string, description: "PR title" }
+            body: { type: string, description: "PR description" }
+            head: { type: string, description: "Source branch" }
+            base: { type: string, description: "Target branch (default: main)" }
+          required: [owner, repo, title, head]
       - name: github_get_ci_status
+        description: "Get CI/commit status for a ref"
         scope: "github:actions:read"
         method: GET
         path: "/repos/{owner}/{repo}/commits/{ref}/status"
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string, description: "Repository owner" }
+            repo: { type: string, description: "Repository name" }
+            ref: { type: string, description: "Commit SHA or branch name" }
+          required: [owner, repo, ref]

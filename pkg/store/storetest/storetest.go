@@ -5,6 +5,7 @@ package storetest
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ func TestStore(t *testing.T, s store.Store) {
 	t.Run("GetTaskNotFound", func(t *testing.T) { testGetTaskNotFound(t, s) })
 	t.Run("UpdateTaskStatus", func(t *testing.T) { testUpdateTaskStatus(t, s) })
 	t.Run("RevokeAndCheck", func(t *testing.T) { testRevokeAndCheck(t, s) })
+	t.Run("RevokeMissingTask", func(t *testing.T) { testRevokeMissingTask(t, s) })
 	t.Run("IsRevokedNotRevoked", func(t *testing.T) { testIsRevokedNotRevoked(t, s) })
 	t.Run("DelegationChain", func(t *testing.T) { testDelegationChain(t, s) })
 	t.Run("AppendAndQueryEvents", func(t *testing.T) { testAppendAndQueryEvents(t, s) })
@@ -208,6 +210,25 @@ func testRevokeAndCheck(t *testing.T, s store.Store) {
 	}
 	if !revoked {
 		t.Fatal("IsRevoked should return true after revocation")
+	}
+}
+
+// testRevokeMissingTask verifies that revoking a nonexistent task returns
+// store.ErrTaskNotFound and does not create a revocation record.
+func testRevokeMissingTask(t *testing.T, s store.Store) {
+	ctx := context.Background()
+
+	err := s.RevokeTask(ctx, "missing-task-id", time.Now().UTC(), "policy violation")
+	if !errors.Is(err, store.ErrTaskNotFound) {
+		t.Fatalf("RevokeTask missing task error = %v, want %v", err, store.ErrTaskNotFound)
+	}
+
+	revoked, err := s.IsRevoked(ctx, "missing-task-id")
+	if err != nil {
+		t.Fatalf("IsRevoked after missing revoke returned error: %v", err)
+	}
+	if revoked {
+		t.Fatal("IsRevoked should remain false for a missing task")
 	}
 }
 
